@@ -1,0 +1,16 @@
+# Data folders
+data/raw/
+data/interim/
+data/processed/
+
+# Python
+venv/
+__pycache__/
+*.pyc
+.vscode/
+
+# Node
+node_modules/
+
+# Env
+.env

@@ -1,0 +1,19 @@
+# ---------- API ----------
+fastapi
+uvicorn
+
+# ---------- Core ML ----------
+numpy
+pandas
+scikit-learn
+lightgbm
+joblib
+
+# ---------- Encoding / preprocessing ----------
+category-encoders
+
+# ---------- Validation / schemas ----------
+pydantic
+
+# ---------- Utilities (safe to include) ----------
+scipy

@@ -1,0 +1,30 @@
+{
+    "model_type": "LightGBM Regressor",
+    "target": "log_modal_price",
+    "features": [
+        "district",
+        "market",
+        "commodity",
+        "variety",
+        "grade",
+        "state",
+        "price_spread",
+        "price_spread_ratio",
+        "modal_to_min_ratio",
+        "modal_to_max_ratio",
+        "month",
+        "week",
+        "month_sin",
+        "month_cos",
+        "commodity_price_zscore",
+        "market_avg_price",
+        "state_avg_price",
+        "market_price_deviation",
+        "lag_1",
+        "lag_7",
+        "pct_change_7"
+    ],
+    "rmse_log": 0.019798517607987193,
+    "rmse_price": 77.76135980539306,
+    "training_date": "2026-01-20 14:41:50.483618"
+}
