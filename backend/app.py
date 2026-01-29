@@ -175,8 +175,7 @@
 #     except Exception as e:
 #         raise HTTPException(status_code=500, detail=str(e))
 
-
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import RootModel
 from typing import Dict, Any, List
@@ -188,55 +187,132 @@ import os
 
 from .preprocess import build_features
 
-# ---------------- APP ----------------
-app = FastAPI(title="Agri Market Price Prediction API")
+# =================================================
+# FASTAPI APP
+# =================================================
+app = FastAPI(
+    title="Agri Market Price Prediction API",
+    version="1.0.0"
+)
 
+# =================================================
+# CORS
+# =================================================
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],   # allow frontend
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ---------------- PATHS ----------------
+# =================================================
+# PATHS
+# =================================================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_DIR = os.path.join(BASE_DIR, "models")
 
-# ---------------- LOAD MODEL ----------------
-with open(os.path.join(MODEL_DIR, "trained_model.pkl"), "rb") as f:
-    model = pickle.load(f)
+# =================================================
+# LOAD MODEL & ARTIFACTS
+# =================================================
+try:
+    with open(os.path.join(MODEL_DIR, "trained_model.pkl"), "rb") as f:
+        model = pickle.load(f)
 
-with open(os.path.join(MODEL_DIR, "feature_columns.pkl"), "rb") as f:
-    feature_columns = pickle.load(f)
+    with open(os.path.join(MODEL_DIR, "feature_columns.pkl"), "rb") as f:
+        feature_columns = pickle.load(f)
 
-with open(os.path.join(MODEL_DIR, "model_metadata.json")) as f:
-    metadata = json.load(f)
+    with open(os.path.join(MODEL_DIR, "model_metadata.json"), "r") as f:
+        model_metadata = json.load(f)
 
-with open(os.path.join(MODEL_DIR, "input_schema.json")) as f:
-    INPUT_SCHEMA = json.load(f)
+    with open(os.path.join(MODEL_DIR, "input_schema.json"), "r") as f:
+        INPUT_SCHEMA = json.load(f)
 
-# ---------------- SCHEMA ----------------
+except Exception as e:
+    raise RuntimeError(f"❌ Failed to load model artifacts: {e}")
+
+# =================================================
+# REQUEST SCHEMA
+# =================================================
 class PredictionRequest(RootModel[Dict[str, Any]]):
     pass
 
-# ---------------- ROUTES ----------------
+# =================================================
+# HEALTH CHECK
+# =================================================
 @app.get("/")
 def health():
-    return {"status": "ok", "model": metadata}
+    return {
+        "status": "running",
+        "model_info": model_metadata
+    }
 
+# =================================================
+# 📍 DROPDOWN ROUTES
+# =================================================
+
+@app.get("/states", response_model=List[str])
+def get_states():
+    return INPUT_SCHEMA.get("states", [])
+
+@app.get("/districts", response_model=List[str])
+def get_districts(state: str = Query(...)):
+    return INPUT_SCHEMA.get("districts", {}).get(state, [])
+
+@app.get("/markets", response_model=List[str])
+def get_markets(
+    state: str = Query(...),
+    district: str = Query(...)
+):
+    key = f"{state}|{district}"
+    return INPUT_SCHEMA.get("markets", {}).get(key, [])
+
+@app.get("/commodities", response_model=List[str])
+def get_commodities(
+    state: str = Query(...),
+    district: str = Query(...),
+    market: str = Query(...)
+):
+    key = f"{state}|{district}|{market}"
+    return INPUT_SCHEMA.get("commodities", {}).get(key, [])
+
+@app.get("/varieties", response_model=List[str])
+def get_varieties(
+    commodity: str = Query(...)
+):
+    return INPUT_SCHEMA.get("varieties", {}).get(commodity, [])
+
+@app.get("/grades", response_model=List[str])
+def get_grades(
+    commodity: str = Query(...),
+    variety: str = Query(...)
+):
+    key = f"{commodity}|{variety}"
+    return INPUT_SCHEMA.get("grades", {}).get(key, [])
+
+# =================================================
+# 🔮 PREDICTION ROUTE
+# =================================================
 @app.post("/predict")
-def predict(req: PredictionRequest):
+def predict(request: PredictionRequest):
     try:
-        engineered = build_features(req.root)
+        # Feature engineering (PKL-based)
+        engineered = build_features(request.root)
+
+        # Ensure feature order
         X = pd.DataFrame([engineered], columns=feature_columns)
 
+        # Predict (log scale → normal)
         pred_log = model.predict(X)
-        price = float(np.exp(pred_log[0]))
+        prediction_value = float(np.exp(pred_log[0]))
 
         return {
-            "prediction": round(price, 2),
-            "fallback_used": engineered["_fallback_level"]
+            "prediction": round(prediction_value, 2),
+            "fallback_used": engineered.get("_fallback_level", "exact")
         }
 
-    except Exception as e:
+    except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
