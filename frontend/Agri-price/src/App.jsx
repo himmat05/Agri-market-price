@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
+import API from "./api";
 
-const API = import.meta.env.VITE_API_BASE_URL;
+
+// const API = import.meta.env.VITE_API_BASE_URL;
 
 export default function App() {
   const [formData, setFormData] = useState({
