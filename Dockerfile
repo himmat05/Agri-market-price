@@ -17,17 +17,21 @@
 
 # CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
 
-
 FROM python:3.10-slim
 
 WORKDIR /app
 
-# Copy requirements from backend folder
+# 🔥 REQUIRED FOR LIGHTGBM
+RUN apt-get update && apt-get install -y \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements
 COPY backend/requirements.txt ./requirements.txt
 
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy backend source code
+# Copy backend code
 COPY backend/ backend/
 
 EXPOSE 8000
