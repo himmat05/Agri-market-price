@@ -124,38 +124,196 @@
 #     return to_python(features)
 
 
+# import pandas as pd
+# import numpy as np
+# import pickle
+# import os
+
+# # -------------------------------------------------
+# # PATHS
+# # -------------------------------------------------
+# BASE_DIR = os.path.dirname(os.path.abspath(__file__))      # backend/
+# PROJECT_DIR = os.path.dirname(BASE_DIR)
+
+# MODEL_DIR = os.path.join(BASE_DIR, "models")
+
+# # CSV path can come from ENV (Render / Docker)
+# FE_DATA_PATH = os.getenv(
+#     "FE_DATA_PATH",
+#     os.path.join(PROJECT_DIR, "data", "processed", "fe_data.csv")
+# )
+
+# ENCODER_PATH = os.path.join(MODEL_DIR, "target_encoder.pkl")
+
+# # -------------------------------------------------
+# # LOAD ENCODER (SAFE)
+# # -------------------------------------------------
+# with open(ENCODER_PATH, "rb") as f:
+#     cat_encoder = pickle.load(f)
+
+# CAT_COLS = ["state", "district", "market", "commodity", "variety", "grade"]
+
+# # -------------------------------------------------
+# # LAZY LOAD DATASET (IMPORTANT CHANGE)
+# # -------------------------------------------------
+# _fe_df = None
+
+# def load_feature_data():
+#     global _fe_df
+
+#     if _fe_df is not None:
+#         return _fe_df
+
+#     if not os.path.exists(FE_DATA_PATH):
+#         raise FileNotFoundError(
+#             f"Feature dataset not found at {FE_DATA_PATH}. "
+#             "Ensure fe_data.csv is mounted or FE_DATA_PATH env is set."
+#         )
+
+#     df = pd.read_csv(FE_DATA_PATH)
+#     df["date"] = pd.to_datetime(df["date"])
+
+#     # Encode categorical columns ONCE
+#     df[CAT_COLS] = cat_encoder.transform(df[CAT_COLS])
+
+#     _fe_df = df
+#     return _fe_df
+
+# # -------------------------------------------------
+# # UTIL
+# # -------------------------------------------------
+# def to_python(d: dict) -> dict:
+#     return {
+#         k: float(v) if isinstance(v, (np.floating, np.integer)) else v
+#         for k, v in d.items()
+#     }
+
+# # -------------------------------------------------
+# # FALLBACK LEVELS
+# # -------------------------------------------------
+# FALLBACK_LEVELS = [
+#     ["state", "district", "market", "commodity", "variety", "grade"],
+#     ["state", "district", "market", "commodity", "variety"],
+#     ["state", "district", "market", "commodity"],
+#     ["state", "commodity"],
+#     ["commodity"]
+# ]
+
+# # -------------------------------------------------
+# # MAIN FEATURE BUILDER
+# # -------------------------------------------------
+# def build_features(raw_input: dict) -> dict:
+#     df = load_feature_data()
+
+#     # Encode user categorical input
+#     raw_cat_df = pd.DataFrame([{
+#         "state": raw_input["state"],
+#         "district": raw_input["district"],
+#         "market": raw_input["market"],
+#         "commodity": raw_input["commodity"],
+#         "variety": raw_input["variety"],
+#         "grade": raw_input["grade"],
+#     }])
+
+#     encoded_user = cat_encoder.transform(raw_cat_df).iloc[0]
+#     user_date = pd.to_datetime(raw_input["date"])
+
+#     matched_df = None
+#     used_level = None
+
+#     # --------- APPLY FALLBACK LOGIC ----------
+#     for level in FALLBACK_LEVELS:
+#         temp = df
+#         for col in level:
+#             temp = temp[temp[col] == encoded_user[col]]
+
+#         if not temp.empty:
+#             matched_df = temp
+#             used_level = "+".join(level)
+#             break
+
+#     if matched_df is None or matched_df.empty:
+#         matched_df = df[df["commodity"] == encoded_user["commodity"]]
+#         used_level = "commodity_only"
+
+#     # --------- NEAREST DATE ----------
+#     matched_df = matched_df.copy()
+#     matched_df["date_diff"] = (matched_df["date"] - user_date).abs()
+#     row = matched_df.sort_values("date_diff").iloc[0]
+
+#     # --------- FINAL FEATURES ----------
+#     features = {
+#         "district": row["district"],
+#         "market": row["market"],
+#         "commodity": row["commodity"],
+#         "variety": row["variety"],
+#         "grade": row["grade"],
+#         "state": row["state"],
+
+#         "price_spread": row["price_spread"],
+#         "price_spread_ratio": row["price_spread_ratio"],
+#         "modal_to_min_ratio": row["modal_to_min_ratio"],
+#         "modal_to_max_ratio": row["modal_to_max_ratio"],
+
+#         "month": int(row["month"]),
+#         "week": int(row["week"]),
+#         "month_sin": row["month_sin"],
+#         "month_cos": row["month_cos"],
+
+#         "commodity_price_zscore": row["commodity_price_zscore"],
+#         "market_avg_price": row["market_avg_price"],
+#         "state_avg_price": row["state_avg_price"],
+#         "market_price_deviation": row["market_price_deviation"],
+
+#         "lag_1": row["lag_1"],
+#         "lag_7": row["lag_7"],
+#         "pct_change_7": row["pct_change_7"],
+
+#         "_fallback_level": used_level
+#     }
+
+#     return to_python(features)
+
+
+import os
+import pickle
 import pandas as pd
 import numpy as np
-import pickle
-import os
+from datetime import datetime
 
-# -------------------------------------------------
-# PATHS
-# -------------------------------------------------
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))      # backend/
-PROJECT_DIR = os.path.dirname(BASE_DIR)
+# =================================================
+# ENV FLAGS
+# =================================================
 
-MODEL_DIR = os.path.join(BASE_DIR, "models")
+DEMO_MODE = os.getenv("DEMO_MODE", "false").lower() == "true"
 
-# CSV path can come from ENV (Render / Docker)
 FE_DATA_PATH = os.getenv(
     "FE_DATA_PATH",
-    os.path.join(PROJECT_DIR, "data", "processed", "fe_data.csv")
+    "./data/processed/fe_data.csv"  # local default
 )
+
+# =================================================
+# PATHS
+# =================================================
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_DIR = os.path.join(BASE_DIR, "models")
 
 ENCODER_PATH = os.path.join(MODEL_DIR, "target_encoder.pkl")
 
-# -------------------------------------------------
-# LOAD ENCODER (SAFE)
-# -------------------------------------------------
+# =================================================
+# LOAD ENCODER
+# =================================================
+
 with open(ENCODER_PATH, "rb") as f:
-    cat_encoder = pickle.load(f)
+    encoder = pickle.load(f)
 
 CAT_COLS = ["state", "district", "market", "commodity", "variety", "grade"]
 
-# -------------------------------------------------
-# LAZY LOAD DATASET (IMPORTANT CHANGE)
-# -------------------------------------------------
+# =================================================
+# LAZY DATA LOADING (FULL MODE ONLY)
+# =================================================
+
 _fe_df = None
 
 def load_feature_data():
@@ -166,47 +324,87 @@ def load_feature_data():
 
     if not os.path.exists(FE_DATA_PATH):
         raise FileNotFoundError(
-            f"Feature dataset not found at {FE_DATA_PATH}. "
-            "Ensure fe_data.csv is mounted or FE_DATA_PATH env is set."
+            f"Feature dataset not found at {FE_DATA_PATH}"
         )
 
     df = pd.read_csv(FE_DATA_PATH)
     df["date"] = pd.to_datetime(df["date"])
 
-    # Encode categorical columns ONCE
-    df[CAT_COLS] = cat_encoder.transform(df[CAT_COLS])
+    # Encode categoricals
+    df[CAT_COLS] = encoder.transform(df[CAT_COLS])
 
     _fe_df = df
     return _fe_df
 
-# -------------------------------------------------
+# =================================================
 # UTIL
-# -------------------------------------------------
-def to_python(d: dict) -> dict:
+# =================================================
+
+def to_python_types(d):
     return {
         k: float(v) if isinstance(v, (np.floating, np.integer)) else v
         for k, v in d.items()
     }
 
-# -------------------------------------------------
-# FALLBACK LEVELS
-# -------------------------------------------------
-FALLBACK_LEVELS = [
-    ["state", "district", "market", "commodity", "variety", "grade"],
-    ["state", "district", "market", "commodity", "variety"],
-    ["state", "district", "market", "commodity"],
-    ["state", "commodity"],
-    ["commodity"]
-]
+# =================================================
+# DEMO MODE FEATURES (RENDER FREE)
+# =================================================
 
-# -------------------------------------------------
+def demo_features():
+    return {
+        "state": 0,
+        "district": 0,
+        "market": 0,
+        "commodity": 0,
+        "variety": 0,
+        "grade": 0,
+
+        "price_spread": 0.12,
+        "price_spread_ratio": 0.05,
+        "modal_to_min_ratio": 1.1,
+        "modal_to_max_ratio": 0.9,
+
+        "month": 6,
+        "week": 25,
+        "month_sin": 0.5,
+        "month_cos": 0.5,
+
+        "commodity_price_zscore": 0.0,
+        "market_avg_price": 3000,
+        "state_avg_price": 2800,
+        "market_price_deviation": 200,
+
+        "lag_1": 2900,
+        "lag_7": 2950,
+        "pct_change_7": 0.02,
+
+        "_fallback_level": "demo_mode"
+    }
+
+# =================================================
 # MAIN FEATURE BUILDER
-# -------------------------------------------------
-def build_features(raw_input: dict) -> dict:
-    df = load_feature_data()
+# =================================================
 
-    # Encode user categorical input
-    raw_cat_df = pd.DataFrame([{
+def build_features(raw_input: dict) -> dict:
+    """
+    Automatically switches between:
+    - DEMO MODE (Render Free)
+    - FULL MODE (Local / Paid infra)
+    """
+
+    # ---------------- DEMO MODE ----------------
+    if DEMO_MODE:
+        return demo_features()
+
+    # ---------------- FULL MODE ----------------
+    try:
+        df = load_feature_data()
+    except FileNotFoundError:
+        # Safety fallback (never crash)
+        return demo_features()
+
+    # Encode user input
+    user_cat = pd.DataFrame([{
         "state": raw_input["state"],
         "district": raw_input["district"],
         "market": raw_input["market"],
@@ -215,40 +413,45 @@ def build_features(raw_input: dict) -> dict:
         "grade": raw_input["grade"],
     }])
 
-    encoded_user = cat_encoder.transform(raw_cat_df).iloc[0]
+    encoded_user = encoder.transform(user_cat).iloc[0]
     user_date = pd.to_datetime(raw_input["date"])
 
-    matched_df = None
+    # Filter progressively (fallback logic)
+    levels = [
+        ["state", "district", "market", "commodity", "variety", "grade"],
+        ["state", "district", "market", "commodity", "variety"],
+        ["state", "district", "market", "commodity"],
+        ["state", "commodity"],
+        ["commodity"]
+    ]
+
+    matched = None
     used_level = None
 
-    # --------- APPLY FALLBACK LOGIC ----------
-    for level in FALLBACK_LEVELS:
+    for lvl in levels:
         temp = df
-        for col in level:
+        for col in lvl:
             temp = temp[temp[col] == encoded_user[col]]
-
         if not temp.empty:
-            matched_df = temp
-            used_level = "+".join(level)
+            matched = temp
+            used_level = "+".join(lvl)
             break
 
-    if matched_df is None or matched_df.empty:
-        matched_df = df[df["commodity"] == encoded_user["commodity"]]
+    if matched is None or matched.empty:
+        matched = df[df["commodity"] == encoded_user["commodity"]]
         used_level = "commodity_only"
 
-    # --------- NEAREST DATE ----------
-    matched_df = matched_df.copy()
-    matched_df["date_diff"] = (matched_df["date"] - user_date).abs()
-    row = matched_df.sort_values("date_diff").iloc[0]
+    matched = matched.copy()
+    matched["date_diff"] = (matched["date"] - user_date).abs()
+    row = matched.sort_values("date_diff").iloc[0]
 
-    # --------- FINAL FEATURES ----------
     features = {
+        "state": row["state"],
         "district": row["district"],
         "market": row["market"],
         "commodity": row["commodity"],
         "variety": row["variety"],
         "grade": row["grade"],
-        "state": row["state"],
 
         "price_spread": row["price_spread"],
         "price_spread_ratio": row["price_spread_ratio"],
@@ -272,4 +475,4 @@ def build_features(raw_input: dict) -> dict:
         "_fallback_level": used_level
     }
 
-    return to_python(features)
+    return to_python_types(features)
