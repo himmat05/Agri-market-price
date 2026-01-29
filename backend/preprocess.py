@@ -275,28 +275,88 @@
 #     return to_python(features)
 
 
+# import pickle
+# import os
+# import pandas as pd
+# import numpy as np
+
+# # ---------------- PATHS ----------------
+# BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# MODEL_DIR = os.path.join(BASE_DIR, "models")
+
+# STORE_PATH = os.path.join(MODEL_DIR, "feature_store.pkl")
+# ENCODER_PATH = os.path.join(MODEL_DIR, "target_encoder.pkl")
+
+# # ---------------- LOAD ARTIFACTS ----------------
+# with open(STORE_PATH, "rb") as f:
+#     FEATURE_STORE = pickle.load(f)
+
+# with open(ENCODER_PATH, "rb") as f:
+#     cat_encoder = pickle.load(f)
+
+# CAT_COLS = ["state", "district", "market", "commodity", "variety", "grade"]
+
+# # ---------------- FALLBACK LEVELS ----------------
+# FALLBACK_LEVELS = [
+#     ["state", "district", "market", "commodity", "variety", "grade"],
+#     ["state", "district", "market", "commodity", "variety"],
+#     ["state", "district", "market", "commodity"],
+#     ["state", "commodity"],
+#     ["commodity"]
+# ]
+
+# # ---------------- UTIL ----------------
+# def to_python(d):
+#     return {k: float(v) if isinstance(v, (np.integer, np.floating)) else v for k, v in d.items()}
+
+# # ---------------- MAIN ----------------
+# def build_features(raw_input: dict) -> dict:
+
+#     raw_cat_df = pd.DataFrame([{
+#         "state": raw_input["state"],
+#         "district": raw_input["district"],
+#         "market": raw_input["market"],
+#         "commodity": raw_input["commodity"],
+#         "variety": raw_input["variety"],
+#         "grade": raw_input["grade"],
+#     }])
+
+#     encoded = cat_encoder.transform(raw_cat_df).iloc[0]
+
+#     for level in FALLBACK_LEVELS:
+#         key_vals = tuple(encoded[col] for col in level)
+#         lookup_key = (tuple(level), key_vals)
+
+#         if lookup_key in FEATURE_STORE:
+#             features = FEATURE_STORE[lookup_key]
+#             features["_fallback_level"] = "+".join(level)
+#             return to_python(features)
+
+#     raise ValueError("No matching feature group found")
+
+
+
 import pickle
 import os
-import pandas as pd
 import numpy as np
 
-# ---------------- PATHS ----------------
+# -------------------------------------------------
+# PATHS
+# -------------------------------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_DIR = os.path.join(BASE_DIR, "models")
 
 STORE_PATH = os.path.join(MODEL_DIR, "feature_store.pkl")
-ENCODER_PATH = os.path.join(MODEL_DIR, "target_encoder.pkl")
 
-# ---------------- LOAD ARTIFACTS ----------------
+# -------------------------------------------------
+# LOAD FEATURE STORE
+# -------------------------------------------------
 with open(STORE_PATH, "rb") as f:
     FEATURE_STORE = pickle.load(f)
 
-with open(ENCODER_PATH, "rb") as f:
-    cat_encoder = pickle.load(f)
-
-CAT_COLS = ["state", "district", "market", "commodity", "variety", "grade"]
-
-# ---------------- FALLBACK LEVELS ----------------
+# -------------------------------------------------
+# FALLBACK LEVELS (MOST → LEAST SPECIFIC)
+# -------------------------------------------------
 FALLBACK_LEVELS = [
     ["state", "district", "market", "commodity", "variety", "grade"],
     ["state", "district", "market", "commodity", "variety"],
@@ -305,30 +365,38 @@ FALLBACK_LEVELS = [
     ["commodity"]
 ]
 
-# ---------------- UTIL ----------------
-def to_python(d):
-    return {k: float(v) if isinstance(v, (np.integer, np.floating)) else v for k, v in d.items()}
+# -------------------------------------------------
+# UTIL
+# -------------------------------------------------
+def to_python(d: dict) -> dict:
+    return {
+        k: float(v) if isinstance(v, (np.integer, np.floating)) else v
+        for k, v in d.items()
+    }
 
-# ---------------- MAIN ----------------
+# -------------------------------------------------
+# MAIN FEATURE BUILDER
+# -------------------------------------------------
 def build_features(raw_input: dict) -> dict:
+    """
+    raw_input includes:
+    state, district, market, commodity, variety, grade, date
+    (date is accepted but not required for lookup)
+    """
 
-    raw_cat_df = pd.DataFrame([{
-        "state": raw_input["state"],
-        "district": raw_input["district"],
-        "market": raw_input["market"],
-        "commodity": raw_input["commodity"],
-        "variety": raw_input["variety"],
-        "grade": raw_input["grade"],
-    }])
+    # Validate required categorical fields
+    required = ["state", "district", "market", "commodity", "variety", "grade"]
+    for field in required:
+        if field not in raw_input:
+            raise KeyError(field)
 
-    encoded = cat_encoder.transform(raw_cat_df).iloc[0]
-
+    # Try fallback levels
     for level in FALLBACK_LEVELS:
-        key_vals = tuple(encoded[col] for col in level)
+        key_vals = tuple(raw_input[col] for col in level)
         lookup_key = (tuple(level), key_vals)
 
         if lookup_key in FEATURE_STORE:
-            features = FEATURE_STORE[lookup_key]
+            features = FEATURE_STORE[lookup_key].copy()
             features["_fallback_level"] = "+".join(level)
             return to_python(features)
 
