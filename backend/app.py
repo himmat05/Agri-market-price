@@ -9,7 +9,7 @@ import json
 import os
 
 # from preprocess import build_features
-from backend.preprocess import build_features
+from .preprocess import build_features
 
 
 # -------------------------------------------------
